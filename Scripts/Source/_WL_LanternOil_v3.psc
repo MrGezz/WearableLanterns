@@ -91,12 +91,22 @@ GlobalVariable property _WL_gToggle auto
 GlobalVariable property _WL_HasFuel auto
 { 0 = Not using fuel mechanic. 1 = Player has fuel. 2 = Fuel is depleted. }
 
-int oil_update_counter = 0
 float last_oil_level = 0.0
-int pollen_update_counter = 0
 int iLastPollenLevel = 0
 int last_pollen_level = 0
+int log_level = -1
 bool is_sneaking = false
+
+;Burn accumulators. The baseline counted 5-second ticks in the script variables
+;oil_update_counter / pollen_update_counter, which survived ToggleLanternOff/On,
+;so fuel progress carried across interruptions. The update interval is now 30
+;seconds and ToggleLanternOn re-registers it unconditionally from many events,
+;so lit time is banked here instead of being counted in whole ticks.
+float burn_mark = 0.0			;GetCurrentRealTime() at the last settle
+int burn_lantern = 0			;Lantern type the un-banked time belongs to
+float oil_burn_carry = 0.0		;Seconds of lit time banked toward the next oil drain
+float pollen_burn_carry = 0.0	;Seconds of lit time banked toward the next pollen drain
+
 bool property previous_lantern_state = false auto hidden
 { False = off. True = on. }
 
@@ -127,6 +137,13 @@ State BlockEvents
 endState
 
 
+Event OnPlayerLoadGame()
+	RefreshLogLevel()
+	;GetCurrentRealTime() restarts with the process, so a mark saved in a previous
+	;session is meaningless. Re-base it before any burn time is banked against it.
+	burn_mark = Utility.GetCurrentRealTime()
+endEvent
+
 Event OnLocationChange(Location akOldLoc, Location akNewLoc)
 	SetShouldLightLanternAutomatically(akNewLoc)
 endEvent
@@ -135,6 +152,7 @@ Event OnAnimationEvent(ObjectReference akSource, string asEventName)
 	if (asEventName == "tailSneakIdle" || asEventName == "tailSneakLocomotion")
 		if is_sneaking == false
 			is_sneaking = true
+			RegisterForSneakExitEvents()
 			if _WL_gToggle.GetValueInt() == 0
 				previous_lantern_state = false
 			else
@@ -145,6 +163,7 @@ Event OnAnimationEvent(ObjectReference akSource, string asEventName)
 	else
 		if is_sneaking == true
 			is_sneaking = false
+			UnregisterForSneakExitEvents()
 			if SettingIsEnabled(_WL_SettingAutomatic)
 				SetShouldLightLanternAutomatically(PlayerRef.GetCurrentLocation())
 			else
@@ -161,18 +180,26 @@ EndEvent
 Event OnUpdateGameTime()
 	SetShouldLightLanternAutomatically(PlayerRef.GetCurrentLocation())
 
-	; Register for dawn / dusk
-	float current_hour = GameHour.GetValue()
-	if current_hour < 7.0
-		RegisterForSingleUpdateGameTime(7.0 - current_hour)
-	elseif current_hour >= 7.0 && current_hour < 19.0
-		RegisterForSingleUpdateGameTime(19.0 - current_hour)
-	elseif current_hour >= 19.0
-		RegisterForSingleUpdateGameTime(7.0 + (24.0 - current_hour))
+	; Register for dawn / dusk (only while automatic mode is on;
+	; re-armed by whoever turns automatic mode back on)
+	if SettingIsEnabled(_WL_SettingAutomatic)
+		float current_hour = GameHour.GetValue()
+		if current_hour < 7.0
+			RegisterForSingleUpdateGameTime(7.0 - current_hour)
+		elseif current_hour >= 7.0 && current_hour < 19.0
+			RegisterForSingleUpdateGameTime(19.0 - current_hour)
+		elseif current_hour >= 19.0
+			RegisterForSingleUpdateGameTime(7.0 + (24.0 - current_hour))
+		endif
 	endif
 endEvent
 
 Event OnObjectEquipped(Form akBaseObject, ObjectReference akReference)
+	; Quick exit: no lantern carried and not equipping one, nothing to do
+	if current_lantern == LANTERN_NONE && !akBaseObject.HasKeyword(_WL_InventoryLantern)
+		return
+	endif
+
 	if IsShield_Safe(akBaseObject) || IsLeftHandWeaponOrTorch(akBaseObject)
 		WLDebug(1, "OnObjectEquipped Event, Weapon, Shield, or Torch")
 		int iPosition = _WL_SettingPosition.GetValueInt()
@@ -245,11 +272,14 @@ endEvent
 
 function SetLantern(Form akBaseObject, int aiLanternIndex, int aiLanternState, string asTorchTypeDebug)
 	; Allow unequip events to process first
-	int i = 20
+	int i = 5
     while unequip_lock == true && i > 0
         Utility.WaitMenuMode(0.2)
         i -= 1
     endWhile
+	if unequip_lock
+		WLDebug(2, "SetLantern: unequip_lock still held after timeout")
+	endif
 
 	WLDebug(1, "Setting lantern: " + asTorchTypeDebug)
 	LanternMutex(akBaseObject)						;Prevent using more than one light source
@@ -323,7 +353,8 @@ Event OnItemRemoved(Form akBaseItem, int aiItemCount, ObjectReference akItemRefe
 	endif
 endEvent
 
-Event OnUpdate()	
+Event OnUpdate()
+	AccrueBurnTime(_WL_gToggle.GetValueInt() == 1)
 	if current_lantern == LANTERN_OIL
 		UpdateOil()
 		SetOilLevel()
@@ -334,27 +365,60 @@ Event OnUpdate()
 	
 	if SettingIsEnabled(_WL_SettingOil) && _WL_gToggle.GetValueInt() == 1 && current_lantern == LANTERN_OIL
 		WLDebug(0, "Registering for update.")
-		RegisterForSingleUpdate(5)
+		RegisterForSingleUpdate(30)
 	elseif SettingIsEnabled(_WL_SettingFeeding) && _WL_gToggle.GetValueInt() == 1 && current_lantern == LANTERN_TORCHBUG
 		WLDebug(0, "Registering for update.")
-		RegisterForSingleUpdate(5)
+		RegisterForSingleUpdate(30)
 	else
 		WLDebug(0, "Update registration no longer valid.")
 	endif
 endEvent
 
+function AccrueBurnTime(bool abLanternWasLit)
+	;Bank the real time the lantern has been lit since the last settle. Called from
+	;OnUpdate and from both toggle functions: ToggleLanternOn restarts the 30-second
+	;timer unconditionally from many events (equip, location change, sneak exit,
+	;hotkey), which would otherwise starve the update loop and stall fuel use.
+	float now = Utility.GetCurrentRealTime()
+	float elapsed = now - burn_mark
+	;While lit the mark is refreshed at least every 30 seconds, so a negative or
+	;multi-minute gap means a stale mark, not real burn time.
+	if abLanternWasLit && elapsed > 0.0 && elapsed < 300.0
+		if burn_lantern == LANTERN_OIL
+			oil_burn_carry += elapsed
+		elseif burn_lantern == LANTERN_TORCHBUG
+			pollen_burn_carry += elapsed
+		endif
+	endif
+	burn_mark = now
+	burn_lantern = current_lantern
+endFunction
+
 function ToggleLanternOn()
+	;Settle first: this function restarts the update timer on every call, so lit
+	;time accrued since the last settle must be banked before it is thrown away.
+	AccrueBurnTime(_WL_gToggle.GetValueInt() == 1)
 	if current_lantern == LANTERN_OIL
+		UpdateOil()
 		SetOilLevel()
 	elseif current_lantern == LANTERN_TORCHBUG
+		UpdatePollen()
 		SetPollenLevel()
 	endif
 	_WL_gToggle.SetValueInt(1)
 	previous_lantern_state = true
-	RegisterForSingleUpdate(5)
+	RegisterForSingleUpdate(30)
 endFunction
 
 function ToggleLanternOff()
+	;Bank and spend the lit time before extinguishing, so an interruption (sneak,
+	;location change, unequip, hotkey) cannot discard fuel progress.
+	AccrueBurnTime(_WL_gToggle.GetValueInt() == 1)
+	if current_lantern == LANTERN_OIL
+		UpdateOil()
+	elseif current_lantern == LANTERN_TORCHBUG
+		UpdatePollen()
+	endif
 	_WL_gToggle.SetValueInt(0)
 	UnregisterForUpdate()
 endFunction
@@ -519,7 +583,7 @@ function DropLantern()
 	endif
 
 	if dropped_lantern
-		dropped_lantern.MoveTo(dropped_lantern)
+		dropped_lantern.MoveTo(PlayerRef, 100.0, 0.0, 35.0)
 		wait(0.2)
 		dropped_lantern.ApplyHavokImpulse(0.0, 0.0, -1.0, 1.0)		;Force to fall to the ground, like an item drop
 	endif
@@ -570,7 +634,7 @@ function DropLitLanternPrompt(Form akBaseObject)
 	endif
 
 	if dropped_lantern
-		dropped_lantern.MoveTo(dropped_lantern)
+		dropped_lantern.MoveTo(PlayerRef, 100.0, 0.0, 35.0)
 		wait(0.2)
 		dropped_lantern.ApplyHavokImpulse(0.0, 0.0, -1.0, 1.0)		;Force to fall to the ground, like an item drop
 	endif
@@ -587,9 +651,10 @@ function RefillTorchbug()
 		int i = 0
 		bool continue = true
 		while i < list_size && continue
-			int flower_count = PlayerRef.GetItemCount(_WL_PollenFlowers.GetAt(i))
+			Form akFlower = _WL_PollenFlowers.GetAt(i)
+			int flower_count = PlayerRef.GetItemCount(akFlower)
 			if flower_count > 0
-				PlayerRef.RemoveItem(_WL_PollenFlowers.GetAt(i), 1, true)
+				PlayerRef.RemoveItem(akFlower, 1, true)
 				pollen_level += 8
 				found_flowers = true
 				continue = false
@@ -619,35 +684,65 @@ endFunction
 function LanternMutex(Form akBaseObject)
 	;Ensure that the player can only equip one lantern at a time.
 	
-	PlayerRef.UnequipItem(_WL_WearableLanternApparel, false, true)
-	PlayerRef.UnequipItem(_WL_WearableLanternApparelFront, false, true)
-	PlayerRef.UnequipItem(_WL_LanternHeld, false, true)
-	PlayerRef.UnequipItem(_WL_WearableTorchbugApparel_Empty, false, true)
-	PlayerRef.UnequipItem(_WL_WearableTorchbugApparelFront_Empty, false, true)
-	PlayerRef.UnequipItem(_WL_TorchbugHeld_Empty, false, true)
-	PlayerRef.UnequipItem(_WL_WearableTorchbugApparel, false, true)
-	PlayerRef.UnequipItem(_WL_WearableTorchbugApparelFront, false, true)
-	PlayerRef.UnequipItem(_WL_TorchbugHeld, false, true)
-	PlayerRef.UnequipItem(_WL_WearableTorchbugApparelRED, false, true)
-	PlayerRef.UnequipItem(_WL_WearableTorchbugApparelFrontRED, false, true)
-	PlayerRef.UnequipItem(_WL_TorchbugHeldRED, false, true)
-	PlayerRef.UnequipItem(_WL_WearablePaperApparel, false, true)
-	PlayerRef.UnequipItem(_WL_WearablePaperApparelFront, false, true)
-	PlayerRef.UnequipItem(_WL_PaperHeld, false, true)
+	if PlayerRef.IsEquipped(_WL_WearableLanternApparel)
+		PlayerRef.UnequipItem(_WL_WearableLanternApparel, false, true)
+	endif
+	if PlayerRef.IsEquipped(_WL_WearableLanternApparelFront)
+		PlayerRef.UnequipItem(_WL_WearableLanternApparelFront, false, true)
+	endif
+	if PlayerRef.IsEquipped(_WL_LanternHeld)
+		PlayerRef.UnequipItem(_WL_LanternHeld, false, true)
+	endif
+	if PlayerRef.IsEquipped(_WL_WearableTorchbugApparel_Empty)
+		PlayerRef.UnequipItem(_WL_WearableTorchbugApparel_Empty, false, true)
+	endif
+	if PlayerRef.IsEquipped(_WL_WearableTorchbugApparelFront_Empty)
+		PlayerRef.UnequipItem(_WL_WearableTorchbugApparelFront_Empty, false, true)
+	endif
+	if PlayerRef.IsEquipped(_WL_TorchbugHeld_Empty)
+		PlayerRef.UnequipItem(_WL_TorchbugHeld_Empty, false, true)
+	endif
+	if PlayerRef.IsEquipped(_WL_WearableTorchbugApparel)
+		PlayerRef.UnequipItem(_WL_WearableTorchbugApparel, false, true)
+	endif
+	if PlayerRef.IsEquipped(_WL_WearableTorchbugApparelFront)
+		PlayerRef.UnequipItem(_WL_WearableTorchbugApparelFront, false, true)
+	endif
+	if PlayerRef.IsEquipped(_WL_TorchbugHeld)
+		PlayerRef.UnequipItem(_WL_TorchbugHeld, false, true)
+	endif
+	if PlayerRef.IsEquipped(_WL_WearableTorchbugApparelRED)
+		PlayerRef.UnequipItem(_WL_WearableTorchbugApparelRED, false, true)
+	endif
+	if PlayerRef.IsEquipped(_WL_WearableTorchbugApparelFrontRED)
+		PlayerRef.UnequipItem(_WL_WearableTorchbugApparelFrontRED, false, true)
+	endif
+	if PlayerRef.IsEquipped(_WL_TorchbugHeldRED)
+		PlayerRef.UnequipItem(_WL_TorchbugHeldRED, false, true)
+	endif
+	if PlayerRef.IsEquipped(_WL_WearablePaperApparel)
+		PlayerRef.UnequipItem(_WL_WearablePaperApparel, false, true)
+	endif
+	if PlayerRef.IsEquipped(_WL_WearablePaperApparelFront)
+		PlayerRef.UnequipItem(_WL_WearablePaperApparelFront, false, true)
+	endif
+	if PlayerRef.IsEquipped(_WL_PaperHeld)
+		PlayerRef.UnequipItem(_WL_PaperHeld, false, true)
+	endif
 
-	if akBaseObject != _WL_WearableLanternInvDisplay
+	if akBaseObject != _WL_WearableLanternInvDisplay && PlayerRef.IsEquipped(_WL_WearableLanternInvDisplay)
 		PlayerRef.UnequipItem(_WL_WearableLanternInvDisplay, false, true)
 	endif
-	if akBaseObject != _WL_WearablePaperInvDisplay
+	if akBaseObject != _WL_WearablePaperInvDisplay && PlayerRef.IsEquipped(_WL_WearablePaperInvDisplay)
 		PlayerRef.UnequipItem(_WL_WearablePaperInvDisplay, false, true)
 	endif
-	if akBaseObject != _WL_WearableTorchbugInvDisplay
+	if akBaseObject != _WL_WearableTorchbugInvDisplay && PlayerRef.IsEquipped(_WL_WearableTorchbugInvDisplay)
 		PlayerRef.UnequipItem(_WL_WearableTorchbugInvDisplay, false, true)
 	endif
-	if akBaseObject != _WL_WearableTorchbugInvDisplayRED
+	if akBaseObject != _WL_WearableTorchbugInvDisplayRED && PlayerRef.IsEquipped(_WL_WearableTorchbugInvDisplayRED)
 		PlayerRef.UnequipItem(_WL_WearableTorchbugInvDisplayRED, false, true)
 	endif
-	if akBaseObject != _WL_WearableTorchbugApparel_EmptyInvDisplay
+	if akBaseObject != _WL_WearableTorchbugApparel_EmptyInvDisplay && PlayerRef.IsEquipped(_WL_WearableTorchbugApparel_EmptyInvDisplay)
 		PlayerRef.UnequipItem(_WL_WearableTorchbugApparel_EmptyInvDisplay, false, true)
 	endif
 endFunction
@@ -697,9 +792,9 @@ function SetShouldLightLanternAutomatically(Location akLocation)
 			return
 		else
 			if IsRefInInterior(PlayerRef)
-				if akLocation.HasKeyword(LocTypeCastle) || akLocation.HasKeyword(LocTypeGuild) || 	\
+				if akLocation && (akLocation.HasKeyword(LocTypeCastle) || akLocation.HasKeyword(LocTypeGuild) || 	\
 					akLocation.HasKeyword(LocTypeInn) || akLocation.HasKeyword(LocTypeHouse) || 	\
-					akLocation.HasKeyword(LocTypePlayerHouse) || akLocation.HasKeyword(LocTypeStore)
+					akLocation.HasKeyword(LocTypePlayerHouse) || akLocation.HasKeyword(LocTypeStore))
 					ToggleLanternOff()
 				else
 					; Inside in non-restricted location type
@@ -754,16 +849,22 @@ endFunction
 function UpdateOil()
 	if SettingIsEnabled(_WL_SettingOil)
 		float oil_level = _WL_OilLevel.GetValue()
-		if oil_update_counter >= 6             	  ;30 seconds have passed, reduce oil in player's lantern
-			if oil_level >= 0.5
-				oil_level -= 0.5
-				_WL_OilLevel.SetValue(oil_level)
-				oil_update_counter = 0
-			endif
+		bool burned = false
+		;Every 35 seconds of accumulated lit time burns half a unit of oil.
+		;Baseline rate: one drain per 7 x 5-second ticks.
+		while oil_burn_carry >= 35.0 && oil_level >= 0.5
+			oil_level -= 0.5
+			oil_burn_carry -= 35.0
+			burned = true
+		endWhile
+		if oil_level < 0.5
+			;Empty lantern: do not bank burn time it cannot pay for
+			oil_burn_carry = 0.0
+		endif
+		if burned
+			_WL_OilLevel.SetValue(oil_level)
 			WLDebug(1, "Oil Level: " + oil_level)
 			SendEvent_UpdateOilMeter()
-		else
-			oil_update_counter += 1
 		endif
 	endif
 endFunction
@@ -805,16 +906,22 @@ endFunction
 function UpdatePollen()
 	if SettingIsEnabled(_WL_SettingFeeding)
 		int pollen_level = _WL_PollenLevel.GetValueInt()
-		if pollen_update_counter >= 6
-			if pollen_level >= 1
-				pollen_level -= 1
-				_WL_PollenLevel.SetValueInt(pollen_level)
-				pollen_update_counter = 0
-			endif
+		bool burned = false
+		;Every 35 seconds of accumulated lit time consumes one unit of pollen.
+		;Baseline rate: one drain per 7 x 5-second ticks.
+		while pollen_burn_carry >= 35.0 && pollen_level >= 1
+			pollen_level -= 1
+			pollen_burn_carry -= 35.0
+			burned = true
+		endWhile
+		if pollen_level < 1
+			;Empty lantern: do not bank burn time it cannot pay for
+			pollen_burn_carry = 0.0
+		endif
+		if burned
+			_WL_PollenLevel.SetValueInt(pollen_level)
 			WLDebug(1, "Pollen Level: " + pollen_level)
 			SendEvent_UpdatePollenMeter()
-		else
-			pollen_update_counter += 1
 		endif
 	endif
 endFunction
@@ -842,10 +949,25 @@ endFunction
 function RegisterForSneakEvents()
 	RegisterForAnimationEvent(PlayerRef, "tailSneakIdle")
 	RegisterForAnimationEvent(PlayerRef, "tailSneakLocomotion")
+	if is_sneaking
+		; Re-enabled while already sneaking; sneak exit must still be detectable.
+		RegisterForSneakExitEvents()
+	endif
+endFunction
+
+function RegisterForSneakExitEvents()
+	; Only registered while the player is sneaking; these are how sneak exit is detected.
 	RegisterForAnimationEvent(PlayerRef, "tailMTIdle")
 	RegisterForAnimationEvent(PlayerRef, "tailMTLocomotion")
 	RegisterForAnimationEvent(PlayerRef, "tailCombatIdle")
 	RegisterForAnimationEvent(PlayerRef, "tailCombatLocomotion")
+endFunction
+
+function UnregisterForSneakExitEvents()
+	UnregisterForAnimationEvent(PlayerRef, "tailMTIdle")
+	UnregisterForAnimationEvent(PlayerRef, "tailMTLocomotion")
+	UnregisterForAnimationEvent(PlayerRef, "tailCombatIdle")
+	UnregisterForAnimationEvent(PlayerRef, "tailCombatLocomotion")
 endFunction
 
 function UnregisterForSneakEvents()
@@ -931,9 +1053,15 @@ function SendEvent_CheckMeterRequirements()
 	endif
 endFunction
 
+function RefreshLogLevel()
+	log_level = _WL_Debug.GetValueInt()
+endFunction
+
 function WLDebug(int aiSeverity, string asLogMessage)
-	int LOG_LEVEL = _WL_Debug.GetValueInt()
-	if LOG_LEVEL <= aiSeverity
+	if log_level < 0
+		log_level = _WL_Debug.GetValueInt()
+	endif
+	if log_level <= aiSeverity
 		if aiSeverity == 0
 			debug.trace("[Wearable Lanterns][Debug] " + asLogMessage)
 		elseif aiSeverity == 1

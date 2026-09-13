@@ -32,13 +32,13 @@ Activator property FireflyBUG auto hidden
 int property SKSE_MIN_VERSION = 10703 autoReadOnly
 Message property _WL_SKSE_Error auto
 Message property _WL_Error_JSONReadWrite auto
+bool bJSONVerified					; Set once CheckJSONReadWrite() has succeeded; suppresses the disk I/O on later loads.
 
 ;Legacy mod warnings
 bool bIsGuardLanternLoaded
 bool bIsKhajiitLanternLoaded
 bool bIsCLNLoaded
 bool bIsCLNDGLoaded
-bool bIsBUGSLoaded
 Message property _WL_CLNWarning auto
 Message property _WL_CLNDGWarning auto
 Message property _WL_GuardLanternWarning auto
@@ -65,9 +65,11 @@ function CompatibilityCheck()
 	
 	CheckSKSE()
 
-	if isSKSELoaded
+	if isSKSELoaded && !bJSONVerified
 		bool can_read_write = CheckJSONReadWrite()
-		if !can_read_write
+		if can_read_write
+			bJSONVerified = true
+		else
 			_WL_Error_JSONReadWrite.Show()
 		endif
 	endif
@@ -78,7 +80,10 @@ function CompatibilityCheck()
 
 	bIsDLC1Loaded = IsPluginLoaded(0x02009403, "Dawnguard.esm")
 	bIsDLC2Loaded = IsPluginLoaded(0x0201FB99, "Dragonborn.esm")
-	bIsSKYUILoaded = IsPluginLoaded(0x01000814, "SkyUI.esp")
+	bIsSKYUILoaded = IsPluginLoaded(0x01000814, "SkyUI_SE.esp")
+	if !bIsSKYUILoaded
+		bIsSKYUILoaded = IsPluginLoaded(0x01000814, "SkyUI.esp")
+	endif
 	Activator GetFirefly = GetBUGSLoaded()
 	
 	if bIsDLC1Loaded
@@ -157,14 +162,14 @@ bool function CheckJSONReadWrite()
 	; Test saving the file.
 	bool save_success = JsonUtil.Save(path)
 	if !save_success
-		debug.trace("[Frostfall][ERROR] Could not save test JSON file. Check that you have folder read/write permissions to Skyrim/Data/SKSE/FrostfallData (or, for Mod Organizer users, Mod Organizer/overwrite/SKSE/FrostfallData).")
+		debug.trace("[Wearable Lanterns][ERROR] Could not save test JSON file. Check that you have folder read/write permissions to Skyrim/Data/SKSE/WearableLanternsData (or, for Mod Organizer users, Mod Organizer/overwrite/SKSE/WearableLanternsData).")
 		return false
 	endif
 
 	; Test loading the file.
 	bool load_success = JsonUtil.Load(path)
 	if !load_success
-		debug.trace("[Frostfall][ERROR] Could not load test JSON file. Check that you have folder read/write permissions to Skyrim/Data/SKSE/FrostfallData (or, for Mod Organizer users, Mod Organizer/overwrite/SKSE/FrostfallData).")
+		debug.trace("[Wearable Lanterns][ERROR] Could not load test JSON file. Check that you have folder read/write permissions to Skyrim/Data/SKSE/WearableLanternsData (or, for Mod Organizer users, Mod Organizer/overwrite/SKSE/WearableLanternsData).")
 		return false
 	endif
 	; Test reading back the values.
@@ -188,7 +193,7 @@ bool function CheckJSONReadWrite()
 		JsonUtil.IntListClear(path, test_key)
 		return true
 	else
-		debug.trace("[Frostfall][ERROR] Could not read from test JSON file. Check that you have folder read/write permissions to Skyrim/Data/SKSE/FrostfallData (or, for Mod Organizer users, Mod Organizer/overwrite/SKSE/FrostfallData).")
+		debug.trace("[Wearable Lanterns][ERROR] Could not read from test JSON file. Check that you have folder read/write permissions to Skyrim/Data/SKSE/WearableLanternsData (or, for Mod Organizer users, Mod Organizer/overwrite/SKSE/WearableLanternsData).")
 		return false
 	endif
 endFunction
@@ -301,7 +306,11 @@ function AddSpells()
 endFunction
 
 function RegisterForEventsOnLoad()
-	(LanternQuestAlias as _WL_LanternOil_v3).RegisterForSingleUpdateGameTime(0.1)
+	;Only arm the dawn/dusk watcher when automatic mode is on. Every site that turns
+	;automatic mode back on re-arms it with RegisterForSingleUpdateGameTime(0.1).
+	if (LanternQuestAlias as _WL_LanternOil_v3)._WL_SettingAutomatic.GetValueInt() == 2
+		(LanternQuestAlias as _WL_LanternOil_v3).RegisterForSingleUpdateGameTime(0.1)
+	endif
 	if _WL_SettingOffWhenSneaking.GetValueInt() == 2
 		(LanternQuestAlias as _WL_LanternOil_v3).RegisterForSneakEvents()
 	else

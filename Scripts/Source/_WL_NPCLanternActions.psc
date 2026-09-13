@@ -26,6 +26,9 @@ Light property _WL_PaperHeld auto
 
 function HandleLanternEquip(Actor akActor)
 	int index = GetLanternIndex(akActor)
+	if index < 0
+		return
+	endif
 	EquipInventoryLantern(akActor, index)
 	int position
 	if (CompatibilityAlias as _WL_Compatibility).GetSKSELoaded()
@@ -61,6 +64,7 @@ int function GetLanternIndex(Actor akActor)
 	elseif akActor.IsEquipped(_WL_WearablePaperInvDisplay)
 		return 3
 	endif
+	return -1 				;No lantern equipped
 endFunction
 
 function EquipInventoryLantern(Actor akActor, int iIndex)

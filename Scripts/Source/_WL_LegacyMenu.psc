@@ -133,6 +133,9 @@ endFunction
 
 function menu_mode()
 	MenuHandler_MultiSelect2(_WL_legacyconfig_modemanual, _WL_legacyconfig_modeauto, _WL_SettingAutomatic, 1)
+	if _WL_SettingAutomatic.GetValueInt() == 2
+		LanternQuest.RegisterForSingleUpdateGameTime(0.1)
+	endif
 endFunction
 
 function menu_sneaking()

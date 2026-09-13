@@ -44,12 +44,10 @@ Event OnInit()
 	
 	;Stock lantern items
 	FillAllAliases()
-	utility.wait(3.0)
-	ClearAllAliases()
-	RemoveAllModItems()
-	FillAllAliases()
 	
-	RegisterForSingleUpdateGameTime(24)
+	;Hotfix 3.0b: the clear/remove/fill cycle must run after the aliases have settled.
+	;Deferred to OnUpdateGameTime instead of blocking the script thread with a 3s wait.
+	RegisterForSingleUpdateGameTime(0.01)
 	
 endEvent
 
@@ -110,186 +108,76 @@ endFunction
 
 function RemoveAllModItems()
 
-	if RiverwoodTraderMerchantContainer.GetItemCount(TravelLanternItem) > 0
-		RiverwoodTraderMerchantContainer.RemoveItem(TravelLanternItem, RiverwoodTraderMerchantContainer.GetItemCount(TravelLanternItem))
-	endif
-	if RiverwoodTraderMerchantContainer.GetItemCount(_WL_Manual) > 0
-		RiverwoodTraderMerchantContainer.RemoveItem(_WL_Manual, RiverwoodTraderMerchantContainer.GetItemCount(_WL_Manual))
-	endif
-	if RiverwoodTraderMerchantContainer.GetItemCount(_WL_LanternOil4) > 0
-		RiverwoodTraderMerchantContainer.RemoveItem(_WL_LanternOil4, RiverwoodTraderMerchantContainer.GetItemCount(_WL_LanternOil4))
-	endif
-	if RiverwoodTraderMerchantContainer.GetItemCount(TorchbugLanternItem) > 0
-		RiverwoodTraderMerchantContainer.RemoveItem(TorchbugLanternItem, RiverwoodTraderMerchantContainer.GetItemCount(TorchbugLanternItem))
-	endif
-	
-	if CaravanAChestREF.GetItemCount(TravelLanternItem) > 0
-		CaravanAChestREF.RemoveItem(TravelLanternItem, CaravanAChestREF.GetItemCount(TravelLanternItem))
-	endif
-	if CaravanAChestREF.GetItemCount(_WL_Manual) > 0
-		CaravanAChestREF.RemoveItem(_WL_Manual, CaravanAChestREF.GetItemCount(_WL_Manual))
-	endif
-	if CaravanAChestREF.GetItemCount(_WL_LanternOil4) > 0
-		CaravanAChestREF.RemoveItem(_WL_LanternOil4, CaravanAChestREF.GetItemCount(_WL_LanternOil4))
-	endif
-	if CaravanAChestREF.GetItemCount(TorchbugLanternItem) > 0
-		CaravanAChestREF.RemoveItem(TorchbugLanternItem, CaravanAChestREF.GetItemCount(TorchbugLanternItem))
-	endif
-	
-	if CaravanBChestREF.GetItemCount(TravelLanternItem) > 0
-		CaravanBChestREF.RemoveItem(TravelLanternItem, CaravanBChestREF.GetItemCount(TravelLanternItem))
-	endif
-	if CaravanBChestREF.GetItemCount(_WL_Manual) > 0
-		CaravanBChestREF.RemoveItem(_WL_Manual, CaravanBChestREF.GetItemCount(_WL_Manual))
-	endif
-	if CaravanBChestREF.GetItemCount(_WL_LanternOil4) > 0
-		CaravanBChestREF.RemoveItem(_WL_LanternOil4, CaravanBChestREF.GetItemCount(_WL_LanternOil4))
-	endif
-	if CaravanBChestREF.GetItemCount(TorchbugLanternItem) > 0
-		CaravanBChestREF.RemoveItem(TorchbugLanternItem, CaravanBChestREF.GetItemCount(TorchbugLanternItem))
-	endif
-	
-	if CaravanCChestREF.GetItemCount(TravelLanternItem) > 0
-		CaravanCChestREF.RemoveItem(TravelLanternItem, CaravanCChestREF.GetItemCount(TravelLanternItem))
-	endif
-	if CaravanCChestREF.GetItemCount(_WL_Manual) > 0
-		CaravanCChestREF.RemoveItem(_WL_Manual, CaravanCChestREF.GetItemCount(_WL_Manual))
-	endif
-	if CaravanCChestREF.GetItemCount(_WL_LanternOil4) > 0
-		CaravanCChestREF.RemoveItem(_WL_LanternOil4, CaravanCChestREF.GetItemCount(_WL_LanternOil4))
-	endif
-	if CaravanCChestREF.GetItemCount(TorchbugLanternItem) > 0
-		CaravanCChestREF.RemoveItem(TorchbugLanternItem, CaravanCChestREF.GetItemCount(TorchbugLanternItem))
-	endif
+	;RemoveItem on a form that is not present is a no-op, so no GetItemCount test is needed.
 
-	if AvalAtheronChest.GetItemCount(TravelLanternItem) > 0
-		AvalAtheronChest.RemoveItem(TravelLanternItem, AvalAtheronChest.GetItemCount(TravelLanternItem))
-	endif
-	if AvalAtheronChest.GetItemCount(_WL_Manual) > 0
-		AvalAtheronChest.RemoveItem(_WL_Manual, AvalAtheronChest.GetItemCount(_WL_Manual))
-	endif
-	if AvalAtheronChest.GetItemCount(_WL_LanternOil4) > 0
-		AvalAtheronChest.RemoveItem(_WL_LanternOil4, AvalAtheronChest.GetItemCount(_WL_LanternOil4))
-	endif
-	if AvalAtheronChest.GetItemCount(TorchbugLanternItem) > 0
-		AvalAtheronChest.RemoveItem(TorchbugLanternItem, AvalAtheronChest.GetItemCount(TorchbugLanternItem))
-	endif
+	RiverwoodTraderMerchantContainer.RemoveItem(TravelLanternItem, 99)
+	RiverwoodTraderMerchantContainer.RemoveItem(_WL_Manual, 99)
+	RiverwoodTraderMerchantContainer.RemoveItem(_WL_LanternOil4, 99)
+	RiverwoodTraderMerchantContainer.RemoveItem(TorchbugLanternItem, 99)
 	
-	if BethethorsMerchantChestRef.GetItemCount(TravelLanternItem) > 0
-		BethethorsMerchantChestRef.RemoveItem(TravelLanternItem, BethethorsMerchantChestRef.GetItemCount(TravelLanternItem))
-	endif
-	if BethethorsMerchantChestRef.GetItemCount(_WL_Manual) > 0
-		BethethorsMerchantChestRef.RemoveItem(_WL_Manual, BethethorsMerchantChestRef.GetItemCount(_WL_Manual))
-	endif
-	if BethethorsMerchantChestRef.GetItemCount(_WL_LanternOil4) > 0
-		BethethorsMerchantChestRef.RemoveItem(_WL_LanternOil4, BethethorsMerchantChestRef.GetItemCount(_WL_LanternOil4))
-	endif
-	if BethethorsMerchantChestRef.GetItemCount(TorchbugLanternItem) > 0
-		BethethorsMerchantChestRef.RemoveItem(TorchbugLanternItem, BethethorsMerchantChestRef.GetItemCount(TorchbugLanternItem))
-	endif
+	CaravanAChestREF.RemoveItem(TravelLanternItem, 99)
+	CaravanAChestREF.RemoveItem(_WL_Manual, 99)
+	CaravanAChestREF.RemoveItem(_WL_LanternOil4, 99)
+	CaravanAChestREF.RemoveItem(TorchbugLanternItem, 99)
 	
-	if BirnaChest.GetItemCount(TravelLanternItem) > 0
-		BirnaChest.RemoveItem(TravelLanternItem, BirnaChest.GetItemCount(TravelLanternItem))
-	endif
-	if BirnaChest.GetItemCount(_WL_Manual) > 0
-		BirnaChest.RemoveItem(_WL_Manual, BirnaChest.GetItemCount(_WL_Manual))
-	endif
-	if BirnaChest.GetItemCount(_WL_LanternOil4) > 0
-		BirnaChest.RemoveItem(_WL_LanternOil4, BirnaChest.GetItemCount(_WL_LanternOil4))
-	endif
-	if BirnaChest.GetItemCount(TorchbugLanternItem) > 0
-		BirnaChest.RemoveItem(TorchbugLanternItem, BirnaChest.GetItemCount(TorchbugLanternItem))
-	endif
+	CaravanBChestREF.RemoveItem(TravelLanternItem, 99)
+	CaravanBChestREF.RemoveItem(_WL_Manual, 99)
+	CaravanBChestREF.RemoveItem(_WL_LanternOil4, 99)
+	CaravanBChestREF.RemoveItem(TorchbugLanternItem, 99)
 	
-	if BrandChest.GetItemCount(TravelLanternItem) > 0
-		BrandChest.RemoveItem(TravelLanternItem, BrandChest.GetItemCount(TravelLanternItem))
-	endif
-	if BrandChest.GetItemCount(_WL_Manual) > 0
-		BrandChest.RemoveItem(_WL_Manual, BrandChest.GetItemCount(_WL_Manual))
-	endif
-	if BrandChest.GetItemCount(_WL_LanternOil4) > 0
-		BrandChest.RemoveItem(_WL_LanternOil4, BrandChest.GetItemCount(_WL_LanternOil4))
-	endif
-	if BrandChest.GetItemCount(TorchbugLanternItem) > 0
-		BrandChest.RemoveItem(TorchbugLanternItem, BrandChest.GetItemCount(TorchbugLanternItem))
-	endif
+	CaravanCChestREF.RemoveItem(TravelLanternItem, 99)
+	CaravanCChestREF.RemoveItem(_WL_Manual, 99)
+	CaravanCChestREF.RemoveItem(_WL_LanternOil4, 99)
+	CaravanCChestREF.RemoveItem(TorchbugLanternItem, 99)
 	
-	if PawnedPrawnChest.GetItemCount(TravelLanternItem) > 0
-		PawnedPrawnChest.RemoveItem(TravelLanternItem, PawnedPrawnChest.GetItemCount(TravelLanternItem))
-	endif
-	if PawnedPrawnChest.GetItemCount(_WL_Manual) > 0
-		PawnedPrawnChest.RemoveItem(_WL_Manual, PawnedPrawnChest.GetItemCount(_WL_Manual))
-	endif
-	if PawnedPrawnChest.GetItemCount(_WL_LanternOil4) > 0
-		PawnedPrawnChest.RemoveItem(_WL_LanternOil4, PawnedPrawnChest.GetItemCount(_WL_LanternOil4))
-	endif
-	if PawnedPrawnChest.GetItemCount(TorchbugLanternItem) > 0
-		PawnedPrawnChest.RemoveItem(TorchbugLanternItem, PawnedPrawnChest.GetItemCount(TorchbugLanternItem))
-	endif
+	AvalAtheronChest.RemoveItem(TravelLanternItem, 99)
+	AvalAtheronChest.RemoveItem(_WL_Manual, 99)
+	AvalAtheronChest.RemoveItem(_WL_LanternOil4, 99)
+	AvalAtheronChest.RemoveItem(TorchbugLanternItem, 99)
 	
-	if WhiterunFraliaChest.GetItemCount(TravelLanternItem) > 0
-		WhiterunFraliaChest.RemoveItem(TravelLanternItem, WhiterunFraliaChest.GetItemCount(TravelLanternItem))
-	endif
-	if WhiterunFraliaChest.GetItemCount(_WL_Manual) > 0
-		WhiterunFraliaChest.RemoveItem(_WL_Manual, WhiterunFraliaChest.GetItemCount(_WL_Manual))
-	endif
-	if WhiterunFraliaChest.GetItemCount(_WL_LanternOil4) > 0
-		WhiterunFraliaChest.RemoveItem(_WL_LanternOil4, WhiterunFraliaChest.GetItemCount(_WL_LanternOil4))
-	endif
-	if WhiterunFraliaChest.GetItemCount(TorchbugLanternItem) > 0
-		WhiterunFraliaChest.RemoveItem(TorchbugLanternItem, WhiterunFraliaChest.GetItemCount(TorchbugLanternItem))
-	endif
+	BethethorsMerchantChestRef.RemoveItem(TravelLanternItem, 99)
+	BethethorsMerchantChestRef.RemoveItem(_WL_Manual, 99)
+	BethethorsMerchantChestRef.RemoveItem(_WL_LanternOil4, 99)
+	BethethorsMerchantChestRef.RemoveItem(TorchbugLanternItem, 99)
 	
-	if MerchantSolitudeBitsAndPiecesChestRef.GetItemCount(TravelLanternItem) > 0
-		MerchantSolitudeBitsAndPiecesChestRef.RemoveItem(TravelLanternItem, MerchantSolitudeBitsAndPiecesChestRef.GetItemCount(TravelLanternItem))
-	endif
-	if MerchantSolitudeBitsAndPiecesChestRef.GetItemCount(_WL_Manual) > 0
-		MerchantSolitudeBitsAndPiecesChestRef.RemoveItem(_WL_Manual, MerchantSolitudeBitsAndPiecesChestRef.GetItemCount(_WL_Manual))
-	endif
-	if MerchantSolitudeBitsAndPiecesChestRef.GetItemCount(_WL_LanternOil4) > 0
-		MerchantSolitudeBitsAndPiecesChestRef.RemoveItem(_WL_LanternOil4, MerchantSolitudeBitsAndPiecesChestRef.GetItemCount(_WL_LanternOil4))
-	endif
-	if MerchantSolitudeBitsAndPiecesChestRef.GetItemCount(TorchbugLanternItem) > 0
-		MerchantSolitudeBitsAndPiecesChestRef.RemoveItem(TorchbugLanternItem, MerchantSolitudeBitsAndPiecesChestRef.GetItemCount(TorchbugLanternItem))
-	endif
+	BirnaChest.RemoveItem(TravelLanternItem, 99)
+	BirnaChest.RemoveItem(_WL_Manual, 99)
+	BirnaChest.RemoveItem(_WL_LanternOil4, 99)
+	BirnaChest.RemoveItem(TorchbugLanternItem, 99)
 	
-	if ArnleifChest.GetItemCount(TravelLanternItem) > 0
-		ArnleifChest.RemoveItem(TravelLanternItem, ArnleifChest.GetItemCount(TravelLanternItem))
-	endif
-	if ArnleifChest.GetItemCount(_WL_Manual) > 0
-		ArnleifChest.RemoveItem(_WL_Manual, ArnleifChest.GetItemCount(_WL_Manual))
-	endif
-	if ArnleifChest.GetItemCount(_WL_LanternOil4) > 0
-		ArnleifChest.RemoveItem(_WL_LanternOil4, ArnleifChest.GetItemCount(_WL_LanternOil4))
-	endif
-	if ArnleifChest.GetItemCount(TorchbugLanternItem) > 0
-		ArnleifChest.RemoveItem(TorchbugLanternItem, ArnleifChest.GetItemCount(TorchbugLanternItem))
-	endif
+	BrandChest.RemoveItem(TravelLanternItem, 99)
+	BrandChest.RemoveItem(_WL_Manual, 99)
+	BrandChest.RemoveItem(_WL_LanternOil4, 99)
+	BrandChest.RemoveItem(TorchbugLanternItem, 99)
 	
-	if GrayPineGoodsChest.GetItemCount(TravelLanternItem) > 0
-		GrayPineGoodsChest.RemoveItem(TravelLanternItem, GrayPineGoodsChest.GetItemCount(TravelLanternItem))
-	endif
-	if GrayPineGoodsChest.GetItemCount(_WL_Manual) > 0
-		GrayPineGoodsChest.RemoveItem(_WL_Manual, GrayPineGoodsChest.GetItemCount(_WL_Manual))
-	endif
-	if GrayPineGoodsChest.GetItemCount(_WL_LanternOil4) > 0
-		GrayPineGoodsChest.RemoveItem(_WL_LanternOil4, GrayPineGoodsChest.GetItemCount(_WL_LanternOil4))
-	endif
-	if GrayPineGoodsChest.GetItemCount(TorchbugLanternItem) > 0
-		GrayPineGoodsChest.RemoveItem(TorchbugLanternItem, GrayPineGoodsChest.GetItemCount(TorchbugLanternItem))
-	endif	
+	PawnedPrawnChest.RemoveItem(TravelLanternItem, 99)
+	PawnedPrawnChest.RemoveItem(_WL_Manual, 99)
+	PawnedPrawnChest.RemoveItem(_WL_LanternOil4, 99)
+	PawnedPrawnChest.RemoveItem(TorchbugLanternItem, 99)
 	
-	if NiranyeChest.GetItemCount(TravelLanternItem) > 0
-		NiranyeChest.RemoveItem(TravelLanternItem, NiranyeChest.GetItemCount(TravelLanternItem))
-	endif
-	if NiranyeChest.GetItemCount(_WL_Manual) > 0
-		NiranyeChest.RemoveItem(_WL_Manual, NiranyeChest.GetItemCount(_WL_Manual))
-	endif
-	if NiranyeChest.GetItemCount(_WL_LanternOil4) > 0
-		NiranyeChest.RemoveItem(_WL_LanternOil4, NiranyeChest.GetItemCount(_WL_LanternOil4))
-	endif
-	if NiranyeChest.GetItemCount(TorchbugLanternItem) > 0
-		NiranyeChest.RemoveItem(TorchbugLanternItem, NiranyeChest.GetItemCount(TorchbugLanternItem))
-	endif
-		
+	WhiterunFraliaChest.RemoveItem(TravelLanternItem, 99)
+	WhiterunFraliaChest.RemoveItem(_WL_Manual, 99)
+	WhiterunFraliaChest.RemoveItem(_WL_LanternOil4, 99)
+	WhiterunFraliaChest.RemoveItem(TorchbugLanternItem, 99)
+	
+	MerchantSolitudeBitsAndPiecesChestRef.RemoveItem(TravelLanternItem, 99)
+	MerchantSolitudeBitsAndPiecesChestRef.RemoveItem(_WL_Manual, 99)
+	MerchantSolitudeBitsAndPiecesChestRef.RemoveItem(_WL_LanternOil4, 99)
+	MerchantSolitudeBitsAndPiecesChestRef.RemoveItem(TorchbugLanternItem, 99)
+	
+	ArnleifChest.RemoveItem(TravelLanternItem, 99)
+	ArnleifChest.RemoveItem(_WL_Manual, 99)
+	ArnleifChest.RemoveItem(_WL_LanternOil4, 99)
+	ArnleifChest.RemoveItem(TorchbugLanternItem, 99)
+	
+	GrayPineGoodsChest.RemoveItem(TravelLanternItem, 99)
+	GrayPineGoodsChest.RemoveItem(_WL_Manual, 99)
+	GrayPineGoodsChest.RemoveItem(_WL_LanternOil4, 99)
+	GrayPineGoodsChest.RemoveItem(TorchbugLanternItem, 99)
+	
+	NiranyeChest.RemoveItem(TravelLanternItem, 99)
+	NiranyeChest.RemoveItem(_WL_Manual, 99)
+	NiranyeChest.RemoveItem(_WL_LanternOil4, 99)
+	NiranyeChest.RemoveItem(TorchbugLanternItem, 99)
+	
 endFunction

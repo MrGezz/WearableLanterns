@@ -423,7 +423,7 @@ function PageReset_SaveLoad()
 
 	AddEmptyOption()
 	if _WL_SettingAutoSaveLoad.GetValueInt() == 2
-		SKI_Main skyui = Game.GetFormFromFile(0x00000814, "SkyUI.esp") as SKI_Main
+		SKI_Main skyui = Game.GetFormFromFile(0x00000814, "SkyUI_SE.esp") as SKI_Main
 		int version = skyui.ReqSWFRelease
 		if version >= 1026 	; SkyUI 5.1+
 			SaveLoad_RenameProfile_OID = AddInputOption("", "$WearableLanternsSaveLoadRenameProfile")
@@ -632,7 +632,7 @@ event OnOptionDefault(int option)
 		_WL_SettingBrightness.SetValueInt(BrightnessIndex)
 		SaveSettingToCurrentProfile("brightness", BrightnessIndex)
 	elseif option == General_SettingPositionMenu_OID
-		PositionIndex == 1
+		PositionIndex = 0
 		SetMenuOptionValue(General_SettingPositionMenu_OID, LanternPositionList[PositionIndex])
 		_WL_SettingPosition.SetValueInt(0)
 		ShowMessage("$WearableLanternsChangedLanternSetting")
@@ -649,7 +649,7 @@ event OnOptionDefault(int option)
 		_WL_SettingAutomatic.SetValueInt(1)
 		SaveSettingToCurrentProfile("automatic_mode", 1)
 	elseif option == General_SettingDropLitToggle_OID
-		SetToggleOptionValue(General_SettingModeMenu_OID, true)
+		SetToggleOptionValue(General_SettingDropLitToggle_OID, true)
 		_WL_SettingDropLit.SetValueInt(2)
 		SaveSettingToCurrentProfile("auto_drop_lit", 2)
 	elseif option == General_SettingOffWhenSneaking_OID
@@ -762,7 +762,7 @@ event OnOptionDefault(int option)
 		endif
 	elseif option == Interface_UIMeterYPos_OID
 		if configuring_oil_meter
-			_WL_SettingMeterOilYPos.SetValue(NORMAL_METER_BOTTOMRIGHT_16_9_X)
+			_WL_SettingMeterOilYPos.SetValue(NORMAL_METER_BOTTOMRIGHT_16_9_Y)
 			SetSliderOptionValue(Interface_UIMeterYPos_OID, NORMAL_METER_BOTTOMRIGHT_16_9_Y, "{1}")
 			UpdateMeterConfiguration(0)
 			SaveSettingToCurrentProfileFloat("oil_meter_ypos", NORMAL_METER_BOTTOMRIGHT_16_9_Y)
@@ -1009,6 +1009,7 @@ event OnOptionMenuAccept(int option, int index)
 		_WL_SettingAutomatic.SetValueInt(index + 1)
 		if _WL_SettingAutomatic.GetValueInt() == 2
 			LanternQuest.ToggleLanternOn()
+			LanternQuest.RegisterForSingleUpdateGameTime(0.1)
 		endIf
 		SaveSettingToCurrentProfile("automatic_mode", index + 1)
 	elseif option == General_SettingCheckFuelDisplayMenu_OID
@@ -1718,6 +1719,9 @@ function SwitchToProfile(int aiProfileIndex)
 	ival = LoadSettingFromProfile(aiProfileIndex, "automatic_mode")
 	if ival != -1
 		_WL_SettingAutomatic.SetValueInt(ival)
+		if ival == 2
+			LanternQuest.RegisterForSingleUpdateGameTime(0.1)
+		endif
 	endif
 	ival = LoadSettingFromProfile(aiProfileIndex, "check_fuel_display")
 	if ival != -1
