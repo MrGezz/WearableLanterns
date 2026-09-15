@@ -97,6 +97,25 @@ int last_pollen_level = 0
 int log_level = -1
 bool is_sneaking = false
 
+; ---- Frostfall carried-light warmth (first-party Frostfall support) ---------------
+; Wearable Lanterns and Frostfall are meant to be used together. A lit wearable lantern
+; is a small carried flame: while it is lit AND Frostfall is installed, it nudges the
+; player's Exposure down toward the warm edge of "Comfortable" (WARMTH_FLOOR) but never
+; lower, so it takes the edge off the cold without ever making the player warm or
+; standing in for real clothing. It is progressively overpowered by real cold, so it does
+; not trivialise Frostfall on a Requiem build. Uses only the documented FrostUtil API and
+; is a hard no-op when Frostfall is absent (FrostUtil.GetAPI() == None). No new form or
+; property is added, so this is save-safe on an existing character.
+; Balance knobs (final tuning is an in-game pass - values are conservative defaults):
+int frostfall_installed = -1	; -1 = not yet probed, 0 = absent, 1 = present (re-probed each load)
+float WARMTH_STEP = 8.0			; Exposure removed per nudge while lit
+float WARMTH_FLOOR = 40.0		; never warmer than the Comfortable/Cold boundary - a lit lantern
+								; alone keeps you no worse than "Cold" in mild weather but never
+								; makes you truly warm; Requiem-conservative (raise toward 50 for
+								; harsher, lower toward 30 for cozier). Frostfall scale: Warm 0-20,
+								; Comfortable 20-40, Cold 40-60, Very Cold 60-80, Freezing 80+.
+float WARMTH_INTERVAL = 30.0	; seconds between nudges; matches the fuel-loop cadence
+
 ;Burn accumulators. The baseline counted 5-second ticks in the script variables
 ;oil_update_counter / pollen_update_counter, which survived ToggleLanternOff/On,
 ;so fuel progress carried across interruptions. The update interval is now 30
@@ -142,6 +161,14 @@ Event OnPlayerLoadGame()
 	;GetCurrentRealTime() restarts with the process, so a mark saved in a previous
 	;session is meaningless. Re-base it before any burn time is banked against it.
 	burn_mark = Utility.GetCurrentRealTime()
+	;The player may have added or removed Frostfall between sessions - re-probe it. If a
+	;lantern is already lit at load, resume the update loop so carried-light warmth (and
+	;fuel) continue after a load; guarded on Frostfall so non-Frostfall load behaviour is
+	;unchanged.
+	frostfall_installed = -1
+	if _WL_gToggle.GetValueInt() == 1 && FrostfallActive()
+		RegisterForSingleUpdate(WARMTH_INTERVAL)
+	endif
 endEvent
 
 Event OnLocationChange(Location akOldLoc, Location akNewLoc)
@@ -362,13 +389,24 @@ Event OnUpdate()
 		UpdatePollen()
 		SetPollenLevel()
 	endif
-	
+
+	;A lit wearable lantern takes the edge off the cold in Frostfall. Applied on the same
+	;30s cadence as the fuel loop; a hard no-op when Frostfall is not installed.
+	if _WL_gToggle.GetValueInt() == 1 && FrostfallActive()
+		ApplyFrostfallWarmth()
+	endif
+
 	if SettingIsEnabled(_WL_SettingOil) && _WL_gToggle.GetValueInt() == 1 && current_lantern == LANTERN_OIL
 		WLDebug(0, "Registering for update.")
 		RegisterForSingleUpdate(30)
 	elseif SettingIsEnabled(_WL_SettingFeeding) && _WL_gToggle.GetValueInt() == 1 && current_lantern == LANTERN_TORCHBUG
 		WLDebug(0, "Registering for update.")
 		RegisterForSingleUpdate(30)
+	elseif _WL_gToggle.GetValueInt() == 1 && FrostfallActive()
+		;Keep the loop alive while lit even when the fuel/feeding mechanic is off, so
+		;carried-light warmth applies regardless of the player's fuel setting.
+		WLDebug(0, "Registering for update (Frostfall warmth).")
+		RegisterForSingleUpdate(WARMTH_INTERVAL)
 	else
 		WLDebug(0, "Update registration no longer valid.")
 	endif
@@ -383,10 +421,14 @@ function AccrueBurnTime(bool abLanternWasLit)
 	float elapsed = now - burn_mark
 	;While lit the mark is refreshed at least every 30 seconds, so a negative or
 	;multi-minute gap means a stale mark, not real burn time.
+	;Bank only when the matching fuel mechanic is enabled. The carry is spent in UpdateOil
+	;and UpdatePollen, both gated on the same setting. The Frostfall warmth loop can keep
+	;this running while the fuel mechanic is off; without this gate the carry would grow
+	;unspent and then burst-drain the moment the player enabled the mechanic.
 	if abLanternWasLit && elapsed > 0.0 && elapsed < 300.0
-		if burn_lantern == LANTERN_OIL
+		if burn_lantern == LANTERN_OIL && SettingIsEnabled(_WL_SettingOil)
 			oil_burn_carry += elapsed
-		elseif burn_lantern == LANTERN_TORCHBUG
+		elseif burn_lantern == LANTERN_TORCHBUG && SettingIsEnabled(_WL_SettingFeeding)
 			pollen_burn_carry += elapsed
 		endif
 	endif
@@ -1079,5 +1121,32 @@ bool function SettingIsEnabled(GlobalVariable akSettingGlobal)
 		return true
 	else
 		return false
+	endif
+endFunction
+
+; ---- Frostfall carried-light warmth helpers ---------------------------------------
+
+bool function FrostfallActive()
+	;Cheap cached probe. FrostUtil.GetAPI() reads Frostfall.esp once; the result is cached
+	;until the next load (OnPlayerLoadGame resets frostfall_installed to -1). Presence is a
+	;safe gate: ModPlayerExposure against an installed-but-disabled Frostfall is a harmless
+	;write to an unused global, and becomes correct the moment the player enables Frostfall.
+	if frostfall_installed == -1
+		if FrostUtil.GetAPI()
+			frostfall_installed = 1
+		else
+			frostfall_installed = 0
+		endif
+	endif
+	return frostfall_installed == 1
+endFunction
+
+function ApplyFrostfallWarmth()
+	;Only in genuinely cold areas (Frostfall area temperature < 10). A negative amount warms
+	;the player; the WARMTH_FLOOR limit stops the reduction at the warm edge of "Comfortable"
+	;so the lantern can slow the cold but never make the player warm. This is the documented
+	;FrostUtil.ModPlayerExposure(amount, limit) pattern ("warmer, but not below <limit>").
+	if FrostUtil.GetCurrentTemperature() < 10
+		FrostUtil.ModPlayerExposure(-WARMTH_STEP, WARMTH_FLOOR)
 	endif
 endFunction

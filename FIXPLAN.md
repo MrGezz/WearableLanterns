@@ -1,12 +1,15 @@
 # Wearable Lanterns Fix Plan
 
-> **Status as of 2026-09-06 - this document now records what was done, not what was
-> proposed.** Of the 33 findings: **30 APPLIED**, 1 DEFERRED (#26), 1 REJECTED (#30),
-> 1 needed NO ACTION (#33). Where the applied fix differs from the proposal below, the finding's
-> Status line says so and `PORT-SSE.md` ("Script fix pass") carries the reasoning.
-> Every change is save-safe on an existing character. The seven changed scripts compile
-> clean; the working copy is built but **not yet deployed** - `buildcheck.py` reports
-> `Wearable Lanterns SE` STALE `+2 ~16 -0`.
+> **Status as of 2026-09-15 - all 33 findings are resolved: 33 APPLIED.** The 2026-09-06
+> pass left three open (#26 DEFERRED, #30 REJECTED, #33 NO ACTION); all three were closed
+> 2026-09-15. #26 - the blocking `WaitMenuMode(1)` removed. #30 - implemented as
+> **first-party Frostfall carried-light warmth** (a lit worn lantern nudges Exposure via
+> the documented `FrostUtil.ModPlayerExposure`, not the keyword route that was rightly
+> rejected). #33 - the unreferenced WIP mesh deleted. Where the applied fix differs from
+> the proposal below, the finding's Status line says so and `PORT-SSE.md` carries the
+> reasoning. Every change is save-safe on an existing character; the changed scripts
+> compile clean (`0 error(s), 0 warning(s)`). Adversarially reviewed 2026-09-15
+> (opus-4-6): API, semantics, save-safety, Requiem balance and the compile all confirmed.
 
 ## State of the mod in this build
 
@@ -59,14 +62,14 @@ The mod is functional but has:
 | 23 | MED | compatibility | `Chesko_WearableLantern.esp` | WL overrides TorchEvents IDLE losing Dawnguard's condition set | APPLIED (override dropped, not merged) |
 | 24 | MED | asset | `WLArchiveManifest.txt` | Manifest lists four PapyrusUtil-provided scripts that no longer exist | APPLIED |
 | 25 | MED | asset | `textures/chesko/_wl_glass*.dds` | Unreferenced NPOT 600x300 textures in manifest | APPLIED (de-listed, art kept) |
-| 26 | LOW | script-load | `_WL_NPCMaintenanceScript.psc:32` | Utility.WaitMenuMode(1) in OnEffectFinish | DEFERRED (see below) |
+| 26 | LOW | script-load | `_WL_NPCMaintenanceScript.psc:32` | Utility.WaitMenuMode(1) in OnEffectFinish | APPLIED (removed 2026-09-15) |
 | 27 | LOW | script-load | `_WL_LanternOil_v3.psc:589-597` | RefillTorchbug double GetAt() per inner loop iteration | APPLIED |
 | 28 | LOW | script-load | `_WL_LanternOil_v3.psc:934-947` | WLDebug reads _WL_Debug GlobalVariable on every call, 2+ per tick | APPLIED |
 | 29 | LOW | compatibility | `Scripts/*.pex` | CommonMeterInterfaceHandler.pex and Common_SKI_MeterWidget.pex have no source | APPLIED (source recovered) |
-| 30 | LOW | compatibility | `Chesko_WearableLantern.esp` | WL lanterns carry no Frostfall warmth/coverage keywords | REJECTED (out of scope) |
+| 30 | LOW | compatibility | `_WL_LanternOil_v3.psc` | WL lanterns give no Frostfall warmth | APPLIED (2026-09-15, carried-light heat via FrostUtil, not keywords) |
 | 31 | LOW | bug | `_WL_Compatibility.psc:160,167,191` | Frostfall error log prefix in WearableLanterns compatibility check | APPLIED (folded into #7) |
 | 32 | LOW | asset | `textures/chesko/_wl_lampgeneric01_backup.dds` | Backup texture in manifest, would ship in release | APPLIED (de-listed, file kept) |
-| 33 | LOW | asset | `meshes/chesko/_WL_Lightstone_WIP.nif` | WIP mesh in working copy (not in manifest, no action needed) | NO ACTION |
+| 33 | LOW | asset | `meshes/chesko/_WL_Lightstone_WIP.nif` | WIP mesh in working copy (unreferenced dev artifact) | APPLIED (deleted 2026-09-15) |
 
 ---
 
@@ -822,7 +825,14 @@ unused, remove from the manifest and delete the files. This is AA's call.
 
 ### 26. NPC maintenance WaitMenuMode(1) (LOW / script-load)
 
-**Status: DEFERRED** - see below (2026-09-06)
+**Status: APPLIED** (2026-09-15)
+
+The blocking `Utility.WaitMenuMode(1)` between `RemoveItem` and `AddItem` in
+`ToggleNPCInventoryLantern` was removed. `RemoveItem` and `AddItem` are sequential
+synchronous native calls, so the removal is committed before the re-add without a wait;
+for an NPC there is no inventory menu for `WaitMenuMode` to service (it only elapses time
+while a menu is open), and this runs only on NPC death or effect expiry - never a hot
+path. Adversarially confirmed safe 2026-09-15. Original proposal follows.
 
 **File:** `Scripts/Source/_WL_NPCMaintenanceScript.psc` line 32
 
@@ -895,26 +905,49 @@ Finding #22 (recompiling against Campfire 1.13.0's version).
 
 ---
 
-### 30. WL lanterns carry no Frostfall warmth/coverage keywords (LOW / compatibility)
+### 30. WL lanterns give no Frostfall warmth (LOW / compatibility)
 
-**Status: REJECTED** - out of scope (2026-09-06)
+**Status: APPLIED** (2026-09-15) - implemented as carried-light heat, approach (b).
 
-**File:** `Chesko_WearableLantern.esp` (ARMO records)
+**File:** `Scripts/Source/_WL_LanternOil_v3.psc`
 
-**What:** WL's 6 keywords are all WL-internal. No Frostfall warmth/coverage keywords.
-However, Frostfall's `GetGearType` does not recognize armor slot 55 (returning
+Wearable Lanterns and Frostfall are meant to be used together, so a lit lantern now takes
+the edge off the cold. This is first-party Frostfall support authored into the port, not a
+third-party patch. The **keyword route was correctly rejected** (see the original analysis
+below): a lantern is not a garment, and Frostfall's `GetGearType` returns GEARTYPE_NOTFOUND
+for armor slot 55, so KID-distributed warmth/coverage keywords would be silently ignored.
+The heat-source route was also rejected: the smallest Frostfall heat level is `1 -> -40` to
+the exposure target (enough to make a worn lantern beat mild cold outright, a Requiem
+balance regression), and `FindClosestReferenceOfAnyTypeInListFromRef` only finds *placed*
+world refs, not an equipped left-hand `Light`, so a formlist injection would not even fire
+for the worn case.
+
+**What was implemented:** while a lantern is lit AND Frostfall is installed, the lantern's
+existing 30s update loop calls the documented public API
+`FrostUtil.ModPlayerExposure(-WARMTH_STEP, WARMTH_FLOOR)` in cold areas
+(`FrostUtil.GetCurrentTemperature() < 10`). A negative amount warms the player, and the
+`WARMTH_FLOOR` limit stops the reduction at the Comfortable/Cold boundary (40.0), so the
+lantern can *slow* the cold but never make the player warm or substitute for real clothing.
+Because the nudge is a fixed 8/30s while the cold's own attractor scales with temperature
+(`TEMP_MOD = -5.1*temp + 102` in `_Frost_ExposureSystem.psc`), it helps in mild cold and is
+progressively overpowered in a blizzard - it does not trivialise Frostfall on a Requiem
+build. Balance knobs `WARMTH_STEP` / `WARMTH_FLOOR` / `WARMTH_INTERVAL` are script constants
+(final tuning is an in-game pass).
+
+**Why on the WL side, not in Frostfall.esp:** this uses Frostfall's own documented
+extension mechanism (`FrostUtil`), so no Frostfall record is touched, no new form or
+property is added, and it is save-safe and a hard no-op when Frostfall is absent
+(`FrostUtil.GetAPI() == None`). `FrostfallActive()` caches a one-time probe, re-probed each
+load. See `PORT-SSE.md` ("Frostfall carried-light warmth") for the full write-up.
+Adversarially reviewed 2026-09-15 (opus-4-6): API existence, `ModPlayerExposure` semantics,
+save-safety, no script-load regression, and Requiem balance all confirmed. In-game tuning
+of the constants is the remaining validation step.
+
+**Original analysis (why the keyword route was rejected):** WL's 6 keywords are all
+WL-internal. Frostfall's `GetGearType` does not recognize armor slot 55 (returning
 GEARTYPE_NOTFOUND), and `GetArmorProtectionDataByKeyword` returns GEARTYPE_IGNORE for
-unrecognized slots. Even with KID-distributed warmth keywords, the keywords would be
-silently ignored.
-
-**Fix:** This is not a simple KID patch. If warmth-from-lantern is desired (a design
-decision), it requires either:
-(a) modifying Frostfall's `GetGearType` to recognize slot 55 as GEARTYPE_MISC, plus KID
-    keywords, or
-(b) a script-side approach calling the warmth system API directly when the lantern is lit.
-
-Both are scope changes to the survival system. AA decides whether this is in scope for the
-first-party Frostfall support workstream.
+unrecognized slots. Even with KID-distributed warmth keywords, they would be silently
+ignored - and a garment warmth value could not be gated on the lantern's lit state anyway.
 
 ---
 
@@ -946,15 +979,17 @@ Would ship in a release.
 
 ### 33. WIP mesh in working copy (LOW / asset)
 
-**Status: NO ACTION** (2026-09-06)
+**Status: APPLIED** - deleted (2026-09-15)
 
 **File:** `meshes/chesko/_WL_Lightstone_WIP.nif`
 
-**What:** BSVersion 100 (SE-format), not in manifest, not referenced by any record.
-Dev artifact. Would not be packaged.
+**What:** BSVersion 100 (SE-format), not in manifest, not referenced by any record, NIF or
+script. A dev artifact for an unimplemented "Lightstone" feature.
 
-**Fix:** No action required for the live build. Consider deleting if the Lightstone
-feature remains unimplemented.
+**Fix:** Deleted from the working copy. Confirmed unreferenced first: no
+`Chesko_WearableLantern.esp` record, no NIF path, and no `.psc` names it (verified
+2026-09-15). The file remains in git history, so it can be restored if the Lightstone
+feature is ever built.
 
 ---
 
@@ -1012,13 +1047,17 @@ invocation is in `PORT-SSE.md`, "Compiling").
 
 ### Still open
 
-- **#26** `Utility.WaitMenuMode(1)` in `_WL_NPCMaintenanceScript.ToggleNPCInventoryLantern`
-  is unchanged. The plan asserts `AddItem` needs no wait after `RemoveItem`; that is an
-  assertion, not a measurement, and the wait plausibly exists so the engine processes the
-  removal before the re-add refreshes the NPC's inventory display. It runs on NPC death or
-  effect expiry only - never a hot path - so it was left alone pending evidence.
-- **#30** Frostfall warmth on lanterns - rejected as out of scope, see "Decisions for AA".
-- **In-game validation of everything in this document.** Nothing here has been run in play.
+- **In-game validation.** All 33 findings are applied and compile clean, but nothing here
+  has been run in play. The Frostfall warmth constants (`WARMTH_STEP` 8, `WARMTH_FLOOR` 40,
+  `WARMTH_INTERVAL` 30) are conservative defaults; the one remaining tuning task is to
+  confirm the feel in a Requiem game and adjust the floor (30 cozier / 50 harsher) to taste.
+
+**Closed 2026-09-15 (previously open):**
+- **#26** `Utility.WaitMenuMode(1)` removed - see Finding #26. Sequential synchronous
+  RemoveItem/AddItem need no wait; NPC actors have no menu for WaitMenuMode to service.
+- **#30** Frostfall warmth - implemented as first-party carried-light heat via
+  `FrostUtil.ModPlayerExposure` (not the keyword route). See Finding #30.
+- **#33** WIP mesh deleted. See Finding #33.
 
 ## Save safety
 
@@ -1055,14 +1094,17 @@ Five of these are now settled; the settled answer is marked **RESOLVED**.
   for a NIF material that is missing its texture reference, or are they genuinely unused?
   If unused, delete; if wanted, identify the target NIF and resize to power-of-two.
 
-- **RESOLVED - Finding #30 (Frostfall warmth for lanterns):** out of scope for this pass;
-  it stays AA's call whether it joins the first-party Frostfall support workstream, and
-  nothing was changed. Original question: A lantern is not a garment. Frostfall's
-  warmth model measures body coverage from clothing. Distributing warmth keywords via KID
-  would be silently ignored because Frostfall's GetGearType does not recognize slot 55.
-  If warmth-from-lantern is desired, it is a design change to the survival system, not a
-  patch. Does this go into the first-party Frostfall support workstream, or is it out of
-  scope?
+- **RESOLVED - Finding #30 (Frostfall warmth for lanterns):** implemented 2026-09-15 as
+  first-party carried-light heat (Finding #30). The keyword route the original question
+  asked about stays rejected (a lantern is not a garment, and slot 55 is invisible to
+  `GetGearType`); instead a lit lantern nudges Exposure toward the Comfortable/Cold boundary
+  via the documented `FrostUtil.ModPlayerExposure`, gated on lit state and Requiem-balanced
+  so it slows the cold without substituting for clothing. No Frostfall record touched.
+  Original question: A lantern is not a garment. Frostfall's warmth model measures body
+  coverage from clothing. Distributing warmth keywords via KID would be silently ignored
+  because Frostfall's GetGearType does not recognize slot 55. If warmth-from-lantern is
+  desired, it is a design change to the survival system, not a patch. Does this go into the
+  first-party Frostfall support workstream, or is it out of scope?
 
 - **RESOLVED - Finding #22/29 (base-class .pex alignment with Campfire):** neither path.
   Champollion showed the two decompiles differ on one `MeterDebug` severity/string and

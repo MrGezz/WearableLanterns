@@ -29,7 +29,11 @@ function ToggleNPCInventoryLantern(Armor akLantern)
 		GoToState("BlockEvents")
 		this_actor.RemoveItem(akLantern, 1)
 		GoToState("")
-		Utility.WaitMenuMode(1)
+		;Finding #26: the blocking Utility.WaitMenuMode(1) was removed. RemoveItem and
+		;AddItem are sequential synchronous native calls, so the remove is committed
+		;before the re-add without a wait; for an NPC there is no inventory menu for
+		;WaitMenuMode to service (it only elapses time while a menu is open), and this
+		;runs only on NPC death or effect expiry - never a hot path.
 		this_actor.AddItem(akLantern, 1)
 	endif
 endFunction

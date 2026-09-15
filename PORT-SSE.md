@@ -58,9 +58,11 @@ as the untouched reference; this clone carries the changes.
   Not a mip of the live 1024x1024 DXT5 `_wl_lampgeneric01.dds` (different compression
   format), so it is not regenerable from what ships.
 
-The three textures and `meshes/chesko/_WL_Lightstone_WIP.nif` stay in the working copy as
-source art; being out of the manifest they are simply not packaged. `manifestcheck.py`
-passes: all 100 manifest entries present, no orphan `.pex`/`.psc`.
+The three textures stay in the working copy as source art; being out of the manifest they
+are simply not packaged. `meshes/chesko/_WL_Lightstone_WIP.nif` (an unreferenced dev
+artifact for an unimplemented "Lightstone" feature) was **deleted 2026-09-15** - FIXPLAN
+#33; it remains in git history. `manifestcheck.py` passes: all 100 manifest entries
+present, no orphan `.pex`/`.psc`.
 
 Note: `manifestcheck.py` derives the mesh/texture folders from its project-name argument
 (`WearableLanterns`), but WL stores those under `chesko`, so its reverse check skips
@@ -254,13 +256,14 @@ passing `akCaster` rather than `akTarget`. `_WL_NPCMaintenanceEffect`
   inventory display, and this runs only on NPC death or effect expiry, never on a hot
   path - so "port, don't reinvent" argues for leaving it until someone can show the re-add
   is safe without it. **Open.**
-- **#30** Frostfall warmth/coverage keywords on WL lanterns. Out of scope by design:
-  Frostfall's `GetGearType` does not recognise armour slot 55, so KID-distributed warmth
-  keywords would be silently ignored. It is a survival-system design change, not a patch -
-  AA's call whether it joins the first-party Frostfall support workstream.
-- **#25 / #32 / #33** were resolved as manifest work (see "Archive manifest" above), not by
-  deleting art: the two NPOT glass textures, the 128x128 backup diffuse and
-  `_WL_Lightstone_WIP.nif` stay in the working copy as source and are simply not packaged.
+- **#30** Frostfall warmth on WL lanterns - **implemented 2026-09-15** as first-party
+  carried-light heat (see "Frostfall carried-light warmth" below). The keyword route stays
+  rejected (slot 55 is invisible to `GetGearType`); instead a lit lantern nudges Exposure
+  via the documented `FrostUtil.ModPlayerExposure`, gated on lit state and Requiem-balanced.
+- **#25 / #32** were resolved as manifest work (see "Archive manifest" above), not by
+  deleting art: the two NPOT glass textures and the 128x128 backup diffuse stay in the
+  working copy as source and are simply not packaged. **#33** - the `_WL_Lightstone_WIP.nif`
+  dev artifact - was deleted 2026-09-15 (unreferenced; still in git history).
 
 ### Compiling
 
@@ -270,21 +273,46 @@ invocation that works, run from the checkout root. **The SKSE headers must prece
 vanilla tree** or every script fails, and they now live in the MO2 mod, because the game's
 own `Data\Scripts\Source` was emptied on 2026-09-05:
 
+**2026-09-15 - use the Campfire compile environment.** `_WL_LanternOil_v3.psc` now calls
+`FrostUtil.ModPlayerExposure` (Frostfall carried-light warmth, #30). Referencing `FrostUtil`
+pulls in the whole FrostfallAPI type graph, which needs Campfire's full compile environment,
+so the recipe below mirrors `Campfire/pscompile.py`'s `import_dirs()`. It is a superset that
+builds every WL script (all 26 clean), including the seven from 2026-09-06.
+
 ```bat
 set GAME=D:\SteamLibrary\steamapps\common\Skyrim Special Edition
 set WS=C:\Users\IceCreamAssasin\Claude\Projects\IcZ Skyrim
 set WL=%WS%\Project Improvement\WearableLanterns
-set IMPORTS=%WS%\Project Improvement\PapyrusUtil\Scripts\Source;%WL%\Scripts\Source;%WS%\CheskoPapyrusShared\Scripts\Source;%WS%\Project Improvement\SkyUI-Community\source\scripts;D:\Mosais\mods\SKSE 2.3.1 Scripts\Scripts\Source;%GAME%\Data\Source\Scripts
+set CAMP=%WS%\Project Improvement\Campfire
+set IMPORTS=%CAMP%\external\SkyrimSE\Scripts\Source;%CAMP%\Scripts\Source;%CAMP%\external\headers;%WL%\Scripts\Source;%WS%\Project Improvement\PapyrusExtenderSSE\Papyrus\Source\scripts;%WS%\Lilac\Scripts\Source;%CAMP%\.papyrus\skse64;%WS%\Project Improvement\SkyUI-Community\source\scripts;%GAME%\Data\Source\Scripts
 
+REM run from a directory with no stray .psc (e.g. a scratch dir), not from Scripts\Source
 "%GAME%\Papyrus Compiler\PapyrusCompiler.exe" "<ScriptName>.psc" ^
     -f="%GAME%\Data\Source\Scripts\TESV_Papyrus_Flags.flg" ^
     -i="%IMPORTS%" -o="%WL%\Scripts"
 ```
 
-Import order, first match wins: PapyrusUtil SE -> this checkout -> `CheskoPapyrusShared`
--> SkyUI-Community's SDK (`SKI_ConfigBase`) -> SKSE 2.3.1 headers -> vanilla sources.
-Campfire's tree is not needed: none of the seven scripts references a `_Camp_` type
-(`_Camp_TinderTypeScript` is attached in the plugin, not imported by any source file).
+Why each dir (first match wins):
+- `%CAMP%\external\SkyrimSE\Scripts\Source` - PapyrusUtil SE (`StorageUtil`).
+- `%CAMP%\Scripts\Source` - `FrostUtil`, `FrostfallAPI`, the `_Frost_*` / `_Camp_*` graph,
+  and `CommonArrayHelper` (which defines `LinkedArrayAddArmor`, used by
+  `_Frost_LegacyArmorDatastore`).
+- `%CAMP%\external\headers` - compile-only Devious Devices / Equipping Overhaul stubs
+  (`_Camp_TentSystem` casts to `ddUnequipMCMScript` / `ddUnequipHandlerScript`).
+- `%WL%\Scripts\Source` - the `_WL_*` sources.
+- Papyrus Extender, Lilac, `%CAMP%\.papyrus\skse64` (merged SKSE64 headers - run
+  `pscompile.py` once to build it), SkyUI-Community SDK, vanilla.
+
+**CheskoPapyrusShared is deliberately excluded.** Both it and Campfire ship
+`CommonArrayHelper.psc`, but only Campfire's copy defines `LinkedArrayAddArmor`; put
+CheskoPapyrusShared first and the FrostfallAPI graph fails to compile
+(`LinkedArrayAddArmor is not a function`). The meter base classes WL needs
+(`Common_SKI_MeterWidget`, `CommonMeterInterfaceHandler`) are in Campfire's tree too, so
+CheskoPapyrusShared is not needed at all.
+
+The simpler pre-Frostfall chain (PapyrusUtil SE -> this checkout -> CheskoPapyrusShared ->
+SkyUI SDK -> SKSE -> vanilla) still builds the six scripts that never touch `FrostUtil`, but
+`_WL_LanternOil_v3` must use the Campfire environment above.
 
 **Verified 2026-09-06 08:15-08:16.** Seven scripts, seven `.pex` written,
 `0 error(s), 0 warning(s)` each:
@@ -297,17 +325,65 @@ Campfire's tree is not needed: none of the seven scripts references a `_Camp_` t
     _WL_SkyUIConfigPanelScript.pex   67,153   08:16:04
     _WL_VendorStock.pex               6,005   08:16:05
 
+## Frostfall carried-light warmth (2026-09-15, FIXPLAN #30 / #26 / #33)
+
+The three items the 2026-09-06 pass left open were closed. Wearable Lanterns and Frostfall
+are meant to be used together, so a lit lantern now takes the edge off the cold.
+
+**#30 - carried-light warmth (`_WL_LanternOil_v3.psc`).** While a lantern is lit AND
+Frostfall is installed, the lantern's existing 30s update loop calls the documented public
+API `FrostUtil.ModPlayerExposure(-WARMTH_STEP, WARMTH_FLOOR)` in cold areas
+(`FrostUtil.GetCurrentTemperature() < 10`). The negative amount warms; the `WARMTH_FLOOR`
+limit stops the reduction at the Comfortable/Cold boundary, so the lantern *slows* the cold
+but never makes the player warm.
+
+- **Why not keywords (the original #30 route):** a lantern is not a garment, and Frostfall's
+  `GetGearType` returns GEARTYPE_NOTFOUND for armour slot 55, so KID warmth keywords would be
+  silently ignored - and a garment warmth value could not be gated on the lit state anyway.
+- **Why not the heat-source system:** the smallest heat level is `1 -> -40` to the exposure
+  target (a worn lantern would beat mild cold outright - a Requiem regression), and
+  `FindClosestReferenceOfAnyTypeInListFromRef` only finds *placed* world refs, not an
+  equipped left-hand `Light`, so it would not fire for the worn case at all.
+- **Balance:** the nudge is a fixed 8 per 30s while the cold's own attractor scales with
+  temperature (`TEMP_MOD = -5.1*temp + 102`, `_Frost_ExposureSystem.psc`), so it dominates in
+  mild cold and is progressively overpowered in a blizzard. Knobs are script constants:
+  `WARMTH_STEP` 8.0, `WARMTH_FLOOR` 40.0 (raise toward 50 harsher / 30 cozier), `WARMTH_INTERVAL`
+  30.0. Final tuning is an in-game pass.
+- **Plumbing:** `FrostfallActive()` caches a one-time `FrostUtil.GetAPI()` probe (re-probed
+  each load in `OnPlayerLoadGame`). `OnUpdate` keeps the loop alive while lit+Frostfall even
+  when the fuel mechanic is off; `AccrueBurnTime` was gated on the fuel setting so the
+  now-sustained loop cannot bank oil/pollen burn time that the disabled mechanic never spends
+  (which would otherwise burst-drain when re-enabled).
+- **Save-safe / no-op:** only plain script variables were added (`frostfall_installed`,
+  `WARMTH_STEP/FLOOR/INTERVAL`); no Frostfall record, form or property is touched. When
+  `Frostfall.esp` is absent, `FrostUtil.GetAPI()` returns None and nothing is applied.
+  `FrostUtil.pex` ships in Campfire, so the call resolves whenever Frostfall is present
+  (Frostfall.esp masters Campfire.esm).
+
+**#26 (`_WL_NPCMaintenanceScript.psc`).** The blocking `Utility.WaitMenuMode(1)` between
+`RemoveItem` and `AddItem` was removed - the calls are sequential synchronous natives, and
+an NPC has no inventory menu for `WaitMenuMode` to service.
+
+**#33.** `meshes/chesko/_WL_Lightstone_WIP.nif` deleted (unreferenced dev artifact).
+
+Adversarially reviewed 2026-09-15 (opus-4-6): API existence, `ModPlayerExposure` semantics,
+save-safety, no script-load regression, Requiem balance, and the compile all confirmed.
+`_WL_LanternOil_v3.pex` links `GetAPI` / `GetCurrentTemperature` / `ModPlayerExposure`.
+
 ### Deployment state
 
-`deploy.py --only "Wearable Lanterns SE"` was run **dry** and deliberately not applied, so
-`buildcheck.py` reports the mod STALE, `+2 ~16 -0`, which is exactly this pass:
+**Deployed and byte-current (2026-09-15).** The 2026-09-06 pass was deployed earlier; the
+2026-09-15 pass was landed with `deploy.py --apply --only "Wearable Lanterns SE"` (MO2
+closed), syncing its four files and one removal:
 
-- add: `Scripts\Source\Common_SKI_MeterWidget.psc`, `Scripts\Source\CommonMeterInterfaceHandler.psc`
-- update: `Chesko_WearableLantern.esp`; the seven rebuilt `.pex`; `Common_SKI_MeterWidget.pex`
-  and `CommonMeterInterfaceHandler.pex`; six `.psc` (`_WL_NPCMaintenanceScript.psc` is
-  unchanged, so it is not in the list)
-- remove: nothing
+- update: `Scripts\_WL_LanternOil_v3.pex`, `Scripts\_WL_NPCMaintenanceScript.pex`,
+  `Scripts\Source\_WL_LanternOil_v3.psc`, `Scripts\Source\_WL_NPCMaintenanceScript.psc`
+- remove: `meshes\chesko\_WL_Lightstone_WIP.nif`
 
-Land it with MO2 closed:
-`python RequiemLotDPatch\tools\deploy.py --apply --only "Wearable Lanterns SE"`.
-The coverage section of that `buildcheck.py` run lists no UNTRACKED folder.
+`buildcheck.py` then reports `Wearable Lanterns SE (tree) CURRENT, 106 files`, tracked and
+byte-checked against this workspace. (That buildcheck run exits 1 only because of unrelated
+UNTRACKED Interesting NPCs / 3DNPC folders AA added after 2026-09-13, which still need
+`mod-sources.json` entries - not a Wearable Lanterns issue.)
+
+In-game validation of the Frostfall warmth feel (and tuning of the `WARMTH_*` constants)
+is the one remaining step.
