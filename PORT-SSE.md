@@ -281,7 +281,7 @@ builds every WL script (all 26 clean), including the seven from 2026-09-06.
 
 ```bat
 set GAME=D:\SteamLibrary\steamapps\common\Skyrim Special Edition
-set WS=C:\Users\IceCreamAssasin\Claude\Projects\IcZ Skyrim
+set WS=<workspace>
 set WL=%WS%\Project Improvement\WearableLanterns
 set CAMP=%WS%\Project Improvement\Campfire
 set IMPORTS=%CAMP%\external\SkyrimSE\Scripts\Source;%CAMP%\Scripts\Source;%CAMP%\external\headers;%WL%\Scripts\Source;%WS%\Project Improvement\PapyrusExtenderSSE\Papyrus\Source\scripts;%WS%\Lilac\Scripts\Source;%CAMP%\.papyrus\skse64;%WS%\Project Improvement\SkyUI-Community\source\scripts;%GAME%\Data\Source\Scripts
